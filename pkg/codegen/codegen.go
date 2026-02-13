@@ -38,6 +38,9 @@ import (
 	"github.com/oapi-codegen/oapi-codegen/v2/pkg/util"
 )
 
+// router override for std-http-handler
+const httprouter = "github.com/julienschmidt/httprouter"
+
 // Embed the templates directory
 //
 //go:embed templates
@@ -262,7 +265,16 @@ func Generate(spec *openapi3.T, opts Configuration) (string, error) {
 
 	var stdHTTPServerOut string
 	if opts.Generate.StdHTTPServer {
-		stdHTTPServerOut, err = GenerateStdHTTPServer(t, ops)
+		for _, ai := range opts.AdditionalImports {
+			// use override for httprouter if it is present in additional imports
+			if ai.Package == httprouter {
+				stdHTTPServerOut, err = GenerateStdHTTPServerWithHttpRouter(t, ops)
+				break
+			}
+		}
+		if stdHTTPServerOut == "" {
+			stdHTTPServerOut, err = GenerateStdHTTPServer(t, ops)
+		}
 		if err != nil {
 			return "", fmt.Errorf("error generating Go handlers for Paths: %w", err)
 		}
@@ -321,6 +333,7 @@ func Generate(spec *openapi3.T, opts Configuration) (string, error) {
 		externalImports,
 		opts.PackageName,
 		opts.NoVCSVersionOverride,
+		opts.AdditionalImports,
 	)
 	if err != nil {
 		return "", fmt.Errorf("error generating imports: %w", err)
@@ -673,6 +686,8 @@ func GenerateTypesForResponses(t *template.Template, responses openapi3.Response
 				return nil, fmt.Errorf("error making name for components/responses/%s: %w", responseName, err)
 			}
 
+			goType.DefinedComp = ComponentTypeResponse
+
 			typeDef := TypeDefinition{
 				JsonName: responseName,
 				Schema:   goType,
@@ -724,6 +739,8 @@ func GenerateTypesForRequestBodies(t *template.Template, bodies map[string]*open
 				return nil, fmt.Errorf("error making name for components/schemas/%s: %w", requestBodyName, err)
 			}
 
+			goType.DefinedComp = ComponentTypeRequestBody
+
 			typeDef := TypeDefinition{
 				JsonName: requestBodyName,
 				Schema:   goType,
@@ -750,15 +767,18 @@ func GenerateTypes(t *template.Template, types []TypeDefinition) (string, error)
 	m := map[string]TypeDefinition{}
 	var ts []TypeDefinition
 
+	if globalState.options.OutputOptions.ResolveTypeNameCollisions {
+		types = FixDuplicateTypeNames(types)
+	}
+
 	for _, typ := range types {
 		if prevType, found := m[typ.TypeName]; found {
-			// If type names collide, we need to see if they refer to the same
-			// exact type definition, in which case, we can de-dupe. If they don't
-			// match, we error out.
+			// If type names collide after auto-rename, we need to see if they
+			// refer to the same exact type definition, in which case, we can
+			// de-dupe. If they don't match, we error out.
 			if TypeDefinitionsEquivalent(prevType, typ) {
 				continue
 			}
-			// We want to create an error when we try to define the same type twice.
 			return "", fmt.Errorf("duplicate typename '%s' detected, can't auto-rename, "+
 				"please use x-go-name to specify your own name for one of them", typ.TypeName)
 		}
@@ -854,7 +874,7 @@ func GenerateEnums(t *template.Template, types []TypeDefinition) (string, error)
 }
 
 // GenerateImports generates our import statements and package definition.
-func GenerateImports(t *template.Template, externalImports []string, packageName string, versionOverride *string) (string, error) {
+func GenerateImports(t *template.Template, externalImports []string, packageName string, versionOverride *string, additionalImports []AdditionalImport) (string, error) {
 	// Read build version for incorporating into generated files
 	// Unit tests have ok=false, so we'll just use "unknown" for the
 	// version if we can't read this.
@@ -884,7 +904,7 @@ func GenerateImports(t *template.Template, externalImports []string, packageName
 		PackageName:       packageName,
 		ModuleName:        modulePath,
 		Version:           moduleVersion,
-		AdditionalImports: globalState.options.AdditionalImports,
+		AdditionalImports: additionalImports,
 	}
 
 	return GenerateTemplates([]string{"imports.tmpl"}, t, context)

@@ -99,6 +99,8 @@ func TestToCamelCaseWithDigits(t *testing.T) {
 }
 
 func TestToCamelCaseWithInitialisms(t *testing.T) {
+	globalState.initialismsMap = makeInitialismsMap(initialismsList)
+
 	tests := []struct {
 		str  string
 		want string
@@ -604,6 +606,7 @@ func TestSchemaNameToTypeName(t *testing.T) {
 		"=3":           "Equal3",
 		"#Tag":         "HashTag",
 		".com":         "DotCom",
+		"_1":           "Underscore1",
 		">=":           "GreaterThanEqual",
 		"<=":           "LessThanEqual",
 		"<":            "LessThan",

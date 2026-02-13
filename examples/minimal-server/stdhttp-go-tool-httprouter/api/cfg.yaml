@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=../../../../configuration-schema.json
+package: api
+output: ping.gen.go
+generate:
+  models: true
+  std-http-server: true
+additional-imports:
+  - package: github.com/julienschmidt/httprouter
+    alias: httprouter
